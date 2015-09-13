@@ -1,0 +1,58 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use 5.010;
+use utf8;
+
+use Net::WebSocket::Server;
+
+my $origin = 'http://www.websocket.org';
+my $port = 8080;
+
+warn "I: initializing WebSocket Server on port $port\n";
+my $server = Net::WebSocket::Server->new(
+    listen => $port,
+    on_connect => sub {
+        my ($serv, $conn) = @_;
+        $conn->on(
+            handshake => sub {
+                my ($conn, $handshake) = @_;
+                warn "I: handshake from " . $handshake->req->origin . "\n";
+                if ($handshake->req->origin eq $origin) {
+                    warn "I: connection accepted (" . $conn->socket . "). total "
+                       . scalar($conn->server->connections) . " connections are\n";
+                }
+                else {
+                    warn "I: unexpected origin - resetting connection\n";
+                    $conn->disconnect();
+                }
+            },
+            disconnect => sub {
+                my ($conn, $code, $reason) = @_;
+                warn "I: connection closed (" . $conn->socket . "). total "
+                   . (scalar($conn->server->connections) - 1) . " connections left\n";
+            },
+            utf8 => sub {
+                my ($conn, $msg) = @_;
+                warn "I: got UTF-8 message: <<$msg>>\n";
+                my $resp = reverse $msg;
+                $_->send_utf8($resp) for $conn->server->connections;
+            },
+            binary => sub {
+                my ($conn, $msg) = @_;
+                warn "I: got binary message: <<" . unpack("H*", $msg) . ">>\n";
+                my $resp = reverse $msg;
+                $_->send_binary($msg) for $conn->server->connections;
+            },
+        );
+    },
+);
+$SIG{'INT'} = $SIG{'QUIT'} = sub {
+    my ($sig) = @_;
+    warn "I: got SIG$sig - shutting down server\n";
+    $server->shutdown;
+};
+warn "I: starting\n";
+$server->start;
+warn "I: WebSocket Server finished\n";
